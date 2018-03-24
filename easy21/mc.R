@@ -1,0 +1,120 @@
+library(tidyverse)
+library(lattice)
+source("env.R")
+
+# initialize value function
+
+all_state_acts_df <- expand.grid(
+  dsum = paste0("D", 1:10),
+  psum = paste0("P", 1:21),
+  act = c("stick", "hit")
+)
+all_state_acts <- paste0(all_state_acts_df$dsum, "_", all_state_acts_df$psum, "_", all_state_acts_df$act)
+
+all_states_df <- expand.grid(
+  dsum = paste0("D", 1:10),
+  psum = paste0("P", 1:21)
+)
+all_states <- paste0(all_states_df$dsum, "_", all_states_df$psum)
+
+action_vfun <- setNames(rep(0.0, length(all_state_acts)), all_state_acts)
+state_vfun <- setNames(rep(0.0, length(all_states)), all_states)
+
+n_state_action <- setNames(rep(0, length(all_state_acts)), all_state_acts)
+n_state <- setNames(rep(0, length(all_states)), all_states)
+
+n0 <- 100
+
+n_ep <- 1000000
+
+state_str <- function(s) {
+  paste0("D", s$dealer_sum, "_", "P", s$player_sum)
+}
+
+for (ep in 1:n_ep) {
+  
+  # run an episode
+  ep_states <- c()
+  ep_state_acts <- c()
+  ep_rewards <- c()
+  
+  ep_state <- list(
+    dealer_sum = sum_of_cards(draw_black()),
+    player_sum = sum_of_cards(draw_black()),
+    terminal = FALSE
+  )
+  
+  repeat {
+  
+    # update N(s_t)
+    ep_state_str <- state_str(ep_state)
+    n_state[ep_state_str] <- n_state[ep_state_str] + 1
+    # record state
+    ep_states <- c(ep_states, ep_state_str)
+    
+    # fetch action values
+    act_values <- c("stick" = action_vfun[paste0(ep_state_str, "_stick")],
+                    "hit" = action_vfun[paste0(ep_state_str, "_hit")])
+    
+    # pick random action with prob epsilon_t
+    if (runif(1) < (n0 / (n0 + n_state[ep_state_str]))) {
+      act <- sample(c("stick", "hit"), 1)
+    } else {
+      act <- c("stick", "hit")[nnet::which.is.max(act_values)]  
+    }
+    
+    # update N(s_t, a_t) and store the state action pair for update at the end of the episode
+    ep_state_act_str <- paste0(ep_state_str, "_", act)
+    n_state_action[ep_state_act_str] <- n_state_action[ep_state_act_str] + 1
+    # record state action pair
+    ep_state_acts <- c(ep_state_acts, ep_state_act_str)
+    
+    # take a step
+    outcome <- step(ep_state, act)
+  
+    # look at outcomes  
+    ep_state <- outcome$next_state
+    ep_rewards <- c(ep_rewards, outcome$reward)
+    
+    if (ep_state$terminal == TRUE) {
+      
+      # update N(s_t) before exiting
+      ep_state_str <- state_str(ep_state)
+      n_state[ep_state_str] <- n_state_action[ep_state_str] + 1
+      # record state before exiting
+      ep_states <- c(ep_states, ep_state_str)
+      break
+    }
+  }
+  
+  for (ep_tstep in seq_along(ep_state_acts)) {
+    
+    ep_state_act_str <- ep_state_acts[ep_tstep]
+    
+    # Q(s_t, a_t) <- Q(s_t, a_t) + (1 / N(s_t, a_t)) * (G_t - Q(s_t, a_t))
+    action_vfun[ep_state_act_str] <- action_vfun[ep_state_act_str] +
+      (1 / n_state_action[ep_state_act_str]) * (ep_rewards[ep_tstep] - action_vfun[ep_state_act_str])
+  }
+}
+
+action_vfun_rdf <- tibble(
+  state_act = names(action_vfun),
+  val = unname(action_vfun)
+)
+
+action_vfun_df <-  action_vfun_rdf %>%
+  mutate(dealer = as.integer(str_match(state_act, "D([0-9]{1,2})_")[, 2]),
+         player = as.integer(str_match(state_act, "_P([0-9]{1,2})_")[, 2]),
+         act = if_else(str_detect(state_act, "stick"), "stick", "hit")) %>%
+  group_by(dealer, player) %>%
+  summarise(maxval = max(val)) %>%
+  ungroup()
+
+action_vfun_df %>%
+  ggplot(aes(dealer, player)) +
+  geom_tile(aes(fill = maxval))
+
+wireframe(maxval ~ player * dealer, data = action_vfun_df,
+          drape = TRUE,
+          colorkey = TRUE,
+          screen = list(z = 30, x = -60, y = 10))
