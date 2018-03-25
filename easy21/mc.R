@@ -1,5 +1,6 @@
 library(tidyverse)
 library(lattice)
+library(stringr)
 source("env.R")
 
 # initialize value function
@@ -53,24 +54,24 @@ for (ep in 1:n_ep) {
     ep_states <- c(ep_states, ep_state_str)
     
     # fetch action values
-    act_values <- c("stick" = action_vfun[paste0(ep_state_str, "_stick")],
-                    "hit" = action_vfun[paste0(ep_state_str, "_hit")])
+    ep_act_values <- c("stick" = unname(action_vfun[paste0(ep_state_str, "_stick")]),
+                       "hit" = unname(action_vfun[paste0(ep_state_str, "_hit")]))
     
     # pick random action with prob epsilon_t
     if (runif(1) < (n0 / (n0 + n_state[ep_state_str]))) {
-      act <- sample(c("stick", "hit"), 1)
+      ep_act <- sample(c("stick", "hit"), 1)
     } else {
-      act <- c("stick", "hit")[nnet::which.is.max(act_values)]  
+      ep_act <- c("stick", "hit")[nnet::which.is.max(ep_act_values)]  
     }
     
     # update N(s_t, a_t) and store the state action pair for update at the end of the episode
-    ep_state_act_str <- paste0(ep_state_str, "_", act)
+    ep_state_act_str <- paste0(ep_state_str, "_", ep_act)
     n_state_action[ep_state_act_str] <- n_state_action[ep_state_act_str] + 1
     # record state action pair
     ep_state_acts <- c(ep_state_acts, ep_state_act_str)
     
     # take a step
-    outcome <- step(ep_state, act)
+    outcome <- step(ep_state, ep_act)
   
     # look at outcomes  
     ep_state <- outcome$next_state
@@ -97,12 +98,14 @@ for (ep in 1:n_ep) {
   }
 }
 
-action_vfun_rdf <- tibble(
+mc_action_vfun <- action_vfun
+
+mc_action_vfun_rdf <- tibble(
   state_act = names(action_vfun),
   val = unname(action_vfun)
 )
 
-action_vfun_df <-  action_vfun_rdf %>%
+mc_action_vfun_df <-  mc_action_vfun_rdf %>%
   mutate(dealer = as.integer(str_match(state_act, "D([0-9]{1,2})_")[, 2]),
          player = as.integer(str_match(state_act, "_P([0-9]{1,2})_")[, 2]),
          act = if_else(str_detect(state_act, "stick"), "stick", "hit")) %>%
@@ -110,11 +113,14 @@ action_vfun_df <-  action_vfun_rdf %>%
   summarise(maxval = max(val)) %>%
   ungroup()
 
-action_vfun_df %>%
+mc_action_vfun_df %>%
   ggplot(aes(dealer, player)) +
   geom_tile(aes(fill = maxval))
 
-wireframe(maxval ~ player * dealer, data = action_vfun_df,
+wireframe(maxval ~ player * dealer, data = mc_action_vfun_df,
           drape = TRUE,
           colorkey = TRUE,
           screen = list(z = 30, x = -60, y = 10))
+
+save(mc_action_vfun, mc_action_vfun_rdf,
+     mc_action_vfun_df, file = "mc.Rdata")
