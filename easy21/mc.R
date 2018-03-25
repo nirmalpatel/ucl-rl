@@ -75,7 +75,7 @@ for (ep in 1:n_ep) {
   
     # look at outcomes  
     ep_state <- outcome$next_state
-    ep_rewards <- c(ep_rewards, outcome$reward)
+    ep_rewards <- c(ep_rewards, sum(ep_rewards) + outcome$reward)
     
     if (ep_state$terminal == TRUE) {
       
