@@ -145,8 +145,8 @@ for (n_ep in c(1000, 5000, 10000)) {
     sarsa_action_vfun <- action_vfun
     
     sarsa_action_vfun_rdf <- tibble(
-      state_act = names(action_vfun),
-      val = unname(action_vfun)
+      state_act = names(sarsa_action_vfun),
+      val = unname(sarsa_action_vfun)
     )
     
     sarsa_action_vfun_df <-  sarsa_action_vfun_rdf %>%
